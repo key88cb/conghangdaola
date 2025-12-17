@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>课程评价可视化系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- 引入 Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+        // ==========================================
+        // 🔴🔴 请在这里填入你的 Firebase 配置信息 🔴🔴
+        // ==========================================
+  const firebaseConfig = {
+
+    apiKey: "AIzaSyBPEWuEeIILN3vJmO1P8_LPOnP7Ru_xvsw",
+
+    authDomain: "class-review-app.firebaseapp.com",
+
+    projectId: "class-review-app",
+
+    storageBucket: "class-review-app.firebasestorage.app",
+
+    messagingSenderId: "309864462464",
+
+    appId: "1:309864462464:web:b435be13b647396fff8e65",
+
+    measurementId: "G-MWKP7SFZ2B"
+
+  };
+
+        // 初始化 Firebase
+        let db;
+        try {
+            const app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            console.log("Firebase initialized");
+        } catch (e) {
+            console.error("Firebase 配置未填写或错误，无法连接数据库。", e);
+        }
+
+        // 将数据库方法挂载到 window 对象，以便 AlpineJS 调用
+        window.submitReviewToDB = async (data) => {
+            if (!db) { alert("请先配置 Firebase！"); return false; }
+            try {
+                await addDoc(collection(db, "reviews"), {
+                    ...data,
+                    timestamp: serverTimestamp()
+                });
+                return true;
+            } catch (e) {
+                console.error("Error adding document: ", e);
+                alert("提交失败: " + e.message);
+                return false;
+            }
+        };
+
+        window.listenToReviews = (callback) => {
+            if (!db) return;
+            const q = query(collection(db, "reviews"), orderBy("timestamp", "desc"), limit(20));
+            onSnapshot(q, (snapshot) => {
+                const reviews = [];
+                snapshot.forEach((doc) => {
+                    reviews.push({ id: doc.id, ...doc.data() });
+                });
+                callback(reviews);
+            });
+        };
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap');
+        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f3f4f6; }
+        .tier-card-夯 { background: linear-gradient(135deg, #FFD700 0%, #FDB931 100%); color: #4a3b00; border: 2px solid #fff; box-shadow: 0 0 15px rgba(255, 215, 0, 0.6); }
+        .tier-card-顶级 { background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); color: #2c3e50; }
+        .tier-card-人上人 { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333; }
+        .tier-card-NPC { background: #e5e7eb; color: #6b7280; }
+        .tier-card-拉 { background: #fee2e2; color: #991b1b; border: 1px dashed #ef4444; }
+    </style>
+</head>
+<body class="min-h-screen py-8 px-4 sm:px-6 lg:px-8">
+
+    <div class="max-w-5xl mx-auto" x-data="courseEvaluator()">
+        
+        <!-- 头部 -->
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight">🎓 课程评价可视化 & 收集</h1>
+            <p class="mt-2 text-lg text-gray-600">输入评分，生成卡片，并贡献你的数据</p>
+        </div>
+
+        <!-- 主操作区 -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+            
+            <!-- 左侧：输入表单 -->
+            <div class="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col h-full">
+                <div class="p-6 bg-indigo-600">
+                    <h2 class="text-xl font-bold text-white flex items-center">📝 评价录入</h2>
+                </div>
+                <div class="p-6 space-y-6 flex-grow">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">课程名称</label>
+                        <input type="text" x-model="courseName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
+                    </div>
+
+                    <template x-for="dim in dimensions" :key="dim.key">
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <label class="text-sm font-medium text-gray-700" x-text="dim.label"></label>
+                                <span class="text-sm font-bold text-indigo-600" x-text="scores[dim.key]"></span>
+                            </div>
+                            <input type="range" min="0" max="10" step="1" x-model.number="scores[dim.key]" @input="updateChart()" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </template>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">一句话短评</label>
+                        <textarea x-model="comment" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"></textarea>
+                    </div>
+
+                    <button @click="submitData" 
+                            :disabled="isSubmitting"
+                            class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition duration-200 flex justify-center items-center disabled:opacity-50">
+                        <span x-show="!isSubmitting">🚀 提交并生成评价</span>
+                        <span x-show="isSubmitting">提交中...</span>
+                    </button>
+                    <p class="text-xs text-center text-gray-400">提交后数据将同步至下方评价墙</p>
+                </div>
+            </div>
+
+            <!-- 右侧：实时预览 -->
+            <div class="space-y-6">
+                <!-- 评级卡片 -->
+                <div class="rounded-2xl shadow-xl overflow-hidden transform transition-all duration-300" :class="`tier-card-${currentTier.name}`">
+                    <div class="p-6 text-center relative">
+                        <div class="absolute top-0 left-0 w-full h-full opacity-10 text-9xl font-black pointer-events-none select-none flex justify-center items-center">
+                            <span x-text="currentTier.name"></span>
+                        </div>
+                        <h3 class="text-lg font-semibold uppercase tracking-wider opacity-80">您的评级</h3>
+                        <div class="text-5xl font-extrabold my-4 drop-shadow-md" x-text="currentTier.name"></div>
+                        <p class="text-md font-medium px-4 opacity-90" x-text="currentTier.desc"></p>
+                    </div>
+                </div>
+
+                <!-- 雷达图 -->
+                <div class="bg-white rounded-2xl shadow-xl p-4">
+                    <div class="relative h-64 w-full">
+                        <canvas id="radarChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 评价墙展示区 -->
+        <div class="border-t border-gray-300 pt-10">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+                📢 最新课程评价墙 
+                <span class="ml-3 text-sm font-normal text-gray-500 bg-gray-200 px-3 py-1 rounded-full" x-text="`${reviewList.length} 条记录`"></span>
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <template x-for="review in reviewList" :key="review.id">
+                    <div class="bg-white p-5 rounded-xl shadow border-l-4 hover:shadow-md transition"
+                         :class="{
+                             'border-yellow-400': review.tier === '夯',
+                             'border-blue-400': review.tier === '顶级',
+                             'border-cyan-400': review.tier === '人上人',
+                             'border-gray-300': review.tier === 'NPC',
+                             'border-red-400': review.tier === '拉'
+                         }">
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="font-bold text-gray-800 truncate w-2/3" x-text="review.courseName"></h3>
+                            <span class="px-2 py-0.5 rounded text-xs font-bold text-white"
+                                  :class="{
+                                     'bg-yellow-500': review.tier === '夯',
+                                     'bg-blue-500': review.tier === '顶级',
+                                     'bg-cyan-500': review.tier === '人上人',
+                                     'bg-gray-400': review.tier === 'NPC',
+                                     'bg-red-500': review.tier === '拉'
+                                  }" x-text="review.tier"></span>
+                        </div>
+                        <div class="flex space-x-2 text-xs text-gray-500 mb-3">
+                            <span>难:<span x-text="review.scores.difficulty"></span></span>
+                            <span>体:<span x-text="review.scores.experience"></span></span>
+                            <span>收:<span x-text="review.scores.gain"></span></span>
+                        </div>
+                        <p class="text-sm text-gray-600 italic break-words" x-text="`“${review.comment}”`"></p>
+                    </div>
+                </template>
+                
+                <div x-show="reviewList.length === 0" class="col-span-full text-center py-10 text-gray-400">
+                    暂无评价数据，快来抢占沙发！(需配置 Firebase)
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function courseEvaluator() {
+            return {
+                courseName: '高等数学',
+                comment: '这门课让人头秃...',
+                isSubmitting: false,
+                reviewList: [],
+                dimensions: [
+                    { key: 'difficulty', label: '难度 (Difficulty)' },
+                    { key: 'experience', label: '体验 (Experience)' },
+                    { key: 'gain', label: '收获 (Gain)' }
+                ],
+                scores: { difficulty: 8, experience: 5, gain: 6 },
+                chartInstance: null,
+
+                get totalScore() { return this.scores.difficulty + this.scores.experience + this.scores.gain; },
+                get currentTier() {
+                    const total = this.totalScore;
+                    if (total >= 27) return { name: '夯', desc: '神课认证！六边形战士！' };
+                    else if (total >= 22) return { name: '顶级', desc: '非常优秀，强烈推荐。' };
+                    else if (total >= 18) return { name: '人上人', desc: '优于平均水平，体验舒适。' };
+                    else if (total >= 10) return { name: 'NPC', desc: '普普通通，中规中矩。' };
+                    else return { name: '拉', desc: '快逃！避雷指南！' };
+                },
+
+                init() {
+                    this.initChart();
+                    this.$watch('scores', () => this.updateChart(), { deep: true });
+                    
+                    // 启动监听 Firebase 数据
+                    if (window.listenToReviews) {
+                        window.listenToReviews((data) => {
+                            this.reviewList = data;
+                        });
+                    }
+                },
+
+                initChart() {
+                    const ctx = document.getElementById('radarChart').getContext('2d');
+                    this.chartInstance = new Chart(ctx, {
+                        type: 'radar',
+                        data: {
+                            labels: ['难度', '体验', '收获'],
+                            datasets: [{
+                                label: '能力值',
+                                data: [this.scores.difficulty, this.scores.experience, this.scores.gain],
+                                backgroundColor: 'rgba(79, 70, 229, 0.2)',
+                                borderColor: 'rgba(79, 70, 229, 1)',
+                                borderWidth: 2
+                            }]
+                        },
+                        options: { scales: { r: { suggestedMin: 0, suggestedMax: 10 } } }
+                    });
+                },
+
+                updateChart() {
+                    if (this.chartInstance) {
+                        this.chartInstance.data.datasets[0].data = Object.values(this.scores);
+                        this.chartInstance.update();
+                    }
+                },
+
+                async submitData() {
+                    if (this.courseName.trim() === '') { alert('请输入课程名称'); return; }
+                    this.isSubmitting = true;
+                    
+                    const dataPayload = {
+                        courseName: this.courseName,
+                        scores: { ...this.scores },
+                        totalScore: this.totalScore,
+                        tier: this.currentTier.name,
+                        comment: this.comment
+                    };
+
+                    // 调用挂载在 window 上的 Firebase 函数
+                    if (window.submitReviewToDB) {
+                        const success = await window.submitReviewToDB(dataPayload);
+                        if (success) {
+                            alert('提交成功！你的评价已上墙。');
+                            this.comment = ''; // 清空评论
+                        }
+                    } else {
+                        alert("数据库未连接，请检查代码中的 firebaseConfig。");
+                    }
+                    this.isSubmitting = false;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
