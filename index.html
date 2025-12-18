@@ -10,12 +10,16 @@
     
     <!-- 2. 引入 Alpine.js (交互核心) - ✅ 必须加 defer -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- 3. ✅ ：Markdown 解析库 (Marked) 和 安全过滤库 (DOMPurify) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
     
-    <!-- 3. 核心逻辑脚本 -->
+    <!-- 4. 核心逻辑脚本 -->
     <script>
         function courseEvaluator() {
             return {
-                nickname: '', // 新增昵称字段
+                nickname: '', 
                 courseName: '',
                 comment: '',
                 isSubmitting: false,
@@ -39,6 +43,9 @@
                 },
 
                 init() {
+                    // ✅ 配置 Markdown 换行
+                    marked.setOptions({ breaks: true });
+
                     setTimeout(() => {
                         if (window.listenToReviews) {
                             window.listenToReviews((data) => {
@@ -48,16 +55,26 @@
                     }, 500);
                 },
 
+                // ✅ ：Markdown 渲染函数
+                renderMarkdown(text) {
+                    if (!text) return '<span class="text-gray-400 italic">（同学很懒，没写建议）</span>';
+                    try {
+                        const rawHtml = marked.parse(text);
+                        return DOMPurify.sanitize(rawHtml);
+                    } catch (e) {
+                        return text;
+                    }
+                },
+
                 async submitData() {
                     if (this.courseName.trim() === '') { alert('⚠️ 请务必填写课程全称！'); return; }
                     
-                    // 默认昵称处理
                     const finalNickname = this.nickname.trim() === '' ? '神秘同学' : this.nickname.trim();
 
                     this.isSubmitting = true;
                     
                     const dataPayload = {
-                        nickname: finalNickname, // 提交昵称
+                        nickname: finalNickname, 
                         courseName: this.courseName,
                         scores: { ...this.scores },
                         totalScore: this.totalScore,
@@ -68,10 +85,9 @@
                     if (window.submitReviewToDB) {
                         const success = await window.submitReviewToDB(dataPayload);
                         if (success) {
-                            // 提交成功后重置表单
                             this.courseName = '';
                             this.comment = '';
-                            this.nickname = ''; // 重置昵称
+                            this.nickname = ''; 
                             this.scores = { difficulty: 5, experience: 5, gain: 5 };
                         }
                     } else {
@@ -83,7 +99,7 @@
         }
     </script>
 
-    <!-- 4. Firebase SDK -->
+    <!-- 5. Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
         import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
@@ -185,6 +201,15 @@
             background: #e5e7eb;
             border-radius: 2px;
         }
+
+        .md-content ul { list-style-type: disc; padding-left: 1.2em; margin-bottom: 0.5em; }
+        .md-content ol { list-style-type: decimal; padding-left: 1.2em; margin-bottom: 0.5em; }
+        .md-content li { margin-bottom: 0.2em; }
+        .md-content strong { font-weight: 800; color: #1f2937; }
+        .md-content em { font-style: italic; }
+        .md-content p { margin-bottom: 0.5em; line-height: 1.6; }
+        .md-content a { color: #4f46e5; text-decoration: underline; }
+        .md-content code { background-color: #f3f4f6; padding: 0.1em 0.3em; border-radius: 0.2em; font-family: monospace; font-size: 0.9em; }
     </style>
 </head>
 <body class="min-h-screen py-8 px-4" x-data="courseEvaluator()">
@@ -241,9 +266,9 @@
                     <!-- 建议/评价 -->
                     <div>
                         <label class="block text-sm font-bold text-gray-700 mb-1">给学弟学妹们的建议</label>
-                        <p class="text-xs text-gray-400 mb-2">学习方法 / 考评方式 / 注意事项 / 避坑指南</p>
-                        <textarea x-model="comment" rows="4" placeholder="这门课平时分怎么算？考试难不难？老师点名吗？..."
-                                  class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none transition"></textarea>
+                        <p class="text-xs text-gray-400 mb-2">✨ 支持 Markdown: **加粗**, 1. 列表, - 项目</p>
+                        <textarea x-model="comment" rows="5" placeholder="1. 考评方式：...&#10;2. 避坑指南：...&#10;3. 学习方法：..."
+                                  class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none transition font-mono text-sm"></textarea>
                     </div>
 
                     <!-- 提交按钮 -->
@@ -275,41 +300,24 @@
                     <h3 class="text-gray-500 text-xs font-bold uppercase mb-4 text-center">预览</h3>
                     
                     <div class="space-y-4">
-                        <!-- 难度条 -->
-                        <div>
-                            <div class="flex justify-between text-xs mb-1">
-                                <span class="font-bold text-gray-600">🧠 难度</span>
-                                <span class="text-gray-400" x-text="scores.difficulty + '/10'">0/10</span>
+                        <!-- 维度条 -->
+                        <template x-for="dim in dimensions" :key="dim.key">
+                            <div>
+                                <div class="flex justify-between text-xs mb-1">
+                                    <span class="font-bold text-gray-600" x-text="dim.label"></span>
+                                    <span class="text-gray-400" x-text="scores[dim.key] + '/10'"></span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-3">
+                                    <div class="h-3 rounded-full transition-all duration-500" 
+                                         :class="{
+                                            'bg-red-400': dim.key === 'difficulty',
+                                            'bg-blue-400': dim.key === 'experience',
+                                            'bg-yellow-400': dim.key === 'gain'
+                                         }"
+                                         :style="`width: ${scores[dim.key] * 10}%`"></div>
+                                </div>
                             </div>
-                            <div class="w-full bg-gray-100 rounded-full h-3">
-                                <div class="bg-red-400 h-3 rounded-full transition-all duration-500" 
-                                     :style="`width: ${scores.difficulty * 10}%`"></div>
-                            </div>
-                        </div>
-
-                        <!-- 体验条 -->
-                        <div>
-                            <div class="flex justify-between text-xs mb-1">
-                                <span class="font-bold text-gray-600">🎮 体验</span>
-                                <span class="text-gray-400" x-text="scores.experience + '/10'">0/10</span>
-                            </div>
-                            <div class="w-full bg-gray-100 rounded-full h-3">
-                                <div class="bg-blue-400 h-3 rounded-full transition-all duration-500" 
-                                     :style="`width: ${scores.experience * 10}%`"></div>
-                            </div>
-                        </div>
-
-                        <!-- 收获条 -->
-                        <div>
-                            <div class="flex justify-between text-xs mb-1">
-                                <span class="font-bold text-gray-600">💰 收获</span>
-                                <span class="text-gray-400" x-text="scores.gain + '/10'">0/10</span>
-                            </div>
-                            <div class="w-full bg-gray-100 rounded-full h-3">
-                                <div class="bg-yellow-400 h-3 rounded-full transition-all duration-500" 
-                                     :style="`width: ${scores.gain * 10}%`"></div>
-                            </div>
-                        </div>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -322,7 +330,6 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 <template x-for="review in reviewList" :key="review.id">
                     <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
-                        <!-- 头部：课程名 + 评级 -->
                         <div class="flex justify-between items-start mb-3">
                             <h3 class="font-bold text-gray-900 truncate text-lg" x-text="review.courseName"></h3>
                             <span class="px-2 py-1 rounded text-xs font-bold text-white whitespace-nowrap ml-2"
@@ -335,13 +342,13 @@
                                   }" x-text="review.tier">--</span>
                         </div>
                         
-                        <!-- 建议内容 -->
+                        <!-- 建议内容 - ✅ 使用 x-html 渲染 Markdown -->
                         <div class="flex-grow">
                             <p class="text-xs text-gray-400 font-bold mb-1">建议/评价：</p>
-                            <p class="text-gray-700 text-sm italic mb-4 whitespace-pre-wrap break-words" x-text="review.comment || '（同学很懒，没写建议）'"></p>
+                            <div class="text-gray-700 text-sm mb-4 break-words md-content" 
+                                 x-html="renderMarkdown(review.comment)"></div>
                         </div>
 
-                        <!-- 底部信息：昵称 + 分数 -->
                         <div class="flex justify-between items-end border-t border-gray-100 pt-3 mt-auto">
                             <div class="flex items-center text-xs text-gray-500">
                                 <span class="mr-1">👤</span>
