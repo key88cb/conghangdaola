@@ -25,9 +25,9 @@
                 isSubmitting: false,
                 reviewList: [],
                 dimensions: [
-                    { key: 'difficulty', label: '🧠 难度' },
-                    { key: 'experience', label: '🎮 体验' },
-                    { key: 'gain', label: '💰 收获' }
+                    { key: 'difficulty', label: ' 难度' },
+                    { key: 'experience', label: ' 体验' },
+                    { key: 'gain', label: ' 收获' }
                 ],
                 scores: { difficulty: 5, experience: 5, gain: 5 },
 
@@ -218,8 +218,8 @@
         
         <!-- 头部 -->
         <div class="text-center mb-10">
-            <h1 class="text-4xl font-extrabold text-gray-800 mb-2">24软工同学们的从夯到拉系统</h1>
-            <p class="text-gray-500">留下你的宝贵经验，指引学弟学妹们的方向</p>
+            <h1 class="text-4xl font-extrabold text-gray-800 mb-2">从夯到拉</h1>
+            <p class="text-gray-500">留下你25春夏的宝贵经验，指引24级学弟学妹们的方向</p>
             <div id="db-status" class="text-gray-400 text-xs mt-2">⚪ 正在连接数据库...</div>
         </div>
 
@@ -275,7 +275,7 @@
                     <button @click="submitData" 
                             :disabled="isSubmitting"
                             class="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold text-lg rounded-xl shadow transition-colors flex justify-center items-center">
-                        <span x-text="isSubmitting ? '正在提交...' : '✅ 提交评价'">✅ 提交评价</span>
+                        <span x-text="isSubmitting ? '正在提交...' : ' 提交评价(需使用魔法)'">✅ 提交评价</span>
                     </button>
                 </div>
             </div>
