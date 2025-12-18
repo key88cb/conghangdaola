@@ -4,64 +4,146 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>课程评价可视化系统</title>
+    
+    <!-- 1. 引入 Tailwind CSS (样式库) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- 2. 引入 Alpine.js (交互核心) - ✅ 必须加 defer -->
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <!-- 引入 Firebase SDK -->
+    
+    <!-- 3. 核心逻辑脚本 -->
+    <script>
+        function courseEvaluator() {
+            return {
+                nickname: '', // 新增昵称字段
+                courseName: '',
+                comment: '',
+                isSubmitting: false,
+                reviewList: [],
+                dimensions: [
+                    { key: 'difficulty', label: '🧠 难度' },
+                    { key: 'experience', label: '🎮 体验' },
+                    { key: 'gain', label: '💰 收获' }
+                ],
+                scores: { difficulty: 5, experience: 5, gain: 5 },
+
+                get totalScore() { return this.scores.difficulty + this.scores.experience + this.scores.gain; },
+                
+                get currentTier() {
+                    const total = this.totalScore;
+                    if (total >= 27) return { name: '夯', desc: '数值怪！离谱的好课！' };
+                    else if (total >= 22) return { name: '顶级', desc: '天选之课。' };
+                    else if (total >= 18) return { name: '人上人', desc: '体验舒适，不错。' };
+                    else if (total >= 10) return { name: 'NPC', desc: '普普通通，毫无波澜。' };
+                    else return { name: '拉', desc: '快逃！这是个坑！' };
+                },
+
+                init() {
+                    setTimeout(() => {
+                        if (window.listenToReviews) {
+                            window.listenToReviews((data) => {
+                                this.reviewList = data;
+                            });
+                        }
+                    }, 500);
+                },
+
+                async submitData() {
+                    if (this.courseName.trim() === '') { alert('⚠️ 请务必填写课程全称！'); return; }
+                    
+                    // 默认昵称处理
+                    const finalNickname = this.nickname.trim() === '' ? '神秘同学' : this.nickname.trim();
+
+                    this.isSubmitting = true;
+                    
+                    const dataPayload = {
+                        nickname: finalNickname, // 提交昵称
+                        courseName: this.courseName,
+                        scores: { ...this.scores },
+                        totalScore: this.totalScore,
+                        tier: this.currentTier.name,
+                        comment: this.comment
+                    };
+
+                    if (window.submitReviewToDB) {
+                        const success = await window.submitReviewToDB(dataPayload);
+                        if (success) {
+                            // 提交成功后重置表单
+                            this.courseName = '';
+                            this.comment = '';
+                            this.nickname = ''; // 重置昵称
+                            this.scores = { difficulty: 5, experience: 5, gain: 5 };
+                        }
+                    } else {
+                        alert("数据库连接似乎有问题，请刷新页面重试");
+                    }
+                    this.isSubmitting = false;
+                }
+            }
+        }
+    </script>
+
+    <!-- 4. Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
         import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 
-        // ==========================================
-        // 🔴🔴 请在这里填入你的 Firebase 配置信息 🔴🔴
-        // ==========================================
-  const firebaseConfig = {
+        const firebaseConfig = {
+            apiKey: "AIzaSyBPEWuEeIILN3vJmO1P8_LPOnP7Ru_xvsw",
+            authDomain: "class-review-app.firebaseapp.com",
+            projectId: "class-review-app",
+            storageBucket: "class-review-app.firebasestorage.app",
+            messagingSenderId: "309864462464",
+            appId: "1:309864462464:web:b435be13b647396fff8e65",
+            measurementId: "G-MWKP7SFZ2B"
+        };
 
-    apiKey: "AIzaSyBPEWuEeIILN3vJmO1P8_LPOnP7Ru_xvsw",
-
-    authDomain: "class-review-app.firebaseapp.com",
-
-    projectId: "class-review-app",
-
-    storageBucket: "class-review-app.firebasestorage.app",
-
-    messagingSenderId: "309864462464",
-
-    appId: "1:309864462464:web:b435be13b647396fff8e65",
-
-    measurementId: "G-MWKP7SFZ2B"
-
-  };
-
-        // 初始化 Firebase
-        let db;
         try {
             const app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
+            const db = getFirestore(app);
+            window.dbInstance = db;
             console.log("Firebase initialized");
+            
+            const updateStatus = () => {
+                const statusEl = document.getElementById('db-status');
+                if(statusEl) { statusEl.innerText = "🟢 数据库已连接"; statusEl.className = "text-green-600 font-bold text-xs"; }
+            };
+            if(document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', updateStatus);
+            } else {
+                updateStatus();
+            }
+
         } catch (e) {
-            console.error("Firebase 配置未填写或错误，无法连接数据库。", e);
+            console.error("Firebase error", e);
+            const updateError = () => {
+                const statusEl = document.getElementById('db-status');
+                if(statusEl) { statusEl.innerText = "🔴 数据库连接失败 (请检查网络)"; statusEl.className = "text-red-600 font-bold text-xs"; }
+            };
+            if(document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', updateError);
+            } else {
+                updateError();
+            }
         }
 
-        // 将数据库方法挂载到 window 对象，以便 AlpineJS 调用
         window.submitReviewToDB = async (data) => {
-            if (!db) { alert("请先配置 Firebase！"); return false; }
+            if (!window.dbInstance) { alert("数据库未连接，可能是网络问题。"); return false; }
             try {
-                await addDoc(collection(db, "reviews"), {
+                await addDoc(collection(window.dbInstance, "reviews"), {
                     ...data,
                     timestamp: serverTimestamp()
                 });
                 return true;
             } catch (e) {
-                console.error("Error adding document: ", e);
                 alert("提交失败: " + e.message);
                 return false;
             }
         };
 
         window.listenToReviews = (callback) => {
-            if (!db) return;
-            const q = query(collection(db, "reviews"), orderBy("timestamp", "desc"), limit(20));
+            if (!window.dbInstance) return;
+            const q = query(collection(window.dbInstance, "reviews"), orderBy("timestamp", "desc"), limit(20));
             onSnapshot(q, (snapshot) => {
                 const reviews = [];
                 snapshot.forEach((doc) => {
@@ -73,220 +155,212 @@
     </script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap');
-        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f3f4f6; }
-        .tier-card-夯 { background: linear-gradient(135deg, #FFD700 0%, #FDB931 100%); color: #4a3b00; border: 2px solid #fff; box-shadow: 0 0 15px rgba(255, 215, 0, 0.6); }
-        .tier-card-顶级 { background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%); color: #2c3e50; }
-        .tier-card-人上人 { background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: #333; }
-        .tier-card-NPC { background: #e5e7eb; color: #6b7280; }
-        .tier-card-拉 { background: #fee2e2; color: #991b1b; border: 1px dashed #ef4444; }
+        body { 
+            font-family: system-ui, -apple-system, sans-serif !important;
+            background-color: #f3f4f6; 
+        }
+
+        .tier-bg-夯 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #4a3b00; border: 4px solid #fff; }
+        .tier-bg-顶级 { background: linear-gradient(135deg, #a18cd1, #fbc2eb); color: #2c3e50; }
+        .tier-bg-人上人 { background: linear-gradient(135deg, #84fab0, #8fd3f4); color: #004d40; }
+        .tier-bg-NPC { background: #e5e7eb; color: #4b5563; }
+        .tier-bg-拉 { background: #fee2e2; color: #991b1b; border: 2px dashed #ef4444; }
+
+        input[type=range] {
+            -webkit-appearance: none; 
+            background: transparent; 
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px; width: 20px;
+            border-radius: 50%;
+            background: #4f46e5;
+            cursor: pointer;
+            margin-top: -8px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px;
+            cursor: pointer;
+            background: #e5e7eb;
+            border-radius: 2px;
+        }
     </style>
 </head>
-<body class="min-h-screen py-8 px-4 sm:px-6 lg:px-8">
+<body class="min-h-screen py-8 px-4" x-data="courseEvaluator()">
 
-    <div class="max-w-5xl mx-auto" x-data="courseEvaluator()">
+    <div class="max-w-6xl mx-auto">
         
         <!-- 头部 -->
         <div class="text-center mb-10">
-            <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight">🎓 课程评价可视化 & 收集</h1>
-            <p class="mt-2 text-lg text-gray-600">输入评分，生成卡片，并贡献你的数据</p>
+            <h1 class="text-4xl font-extrabold text-gray-800 mb-2">24软工同学们的从夯到拉系统</h1>
+            <p class="text-gray-500">留下你的宝贵经验，指引学弟学妹们的方向</p>
+            <div id="db-status" class="text-gray-400 text-xs mt-2">⚪ 正在连接数据库...</div>
         </div>
 
-        <!-- 主操作区 -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-12">
+        <!-- 主布局 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
             
-            <!-- 左侧：输入表单 -->
-            <div class="bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col h-full">
-                <div class="p-6 bg-indigo-600">
-                    <h2 class="text-xl font-bold text-white flex items-center">📝 评价录入</h2>
+            <!-- 🔴 左侧：输入控制区 -->
+            <div class="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+                <div class="bg-gray-800 text-white p-4 font-bold flex justify-between items-center">
+                    <span>📝 填写评价</span>
                 </div>
-                <div class="p-6 space-y-6 flex-grow">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">课程名称</label>
-                        <input type="text" x-model="courseName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition">
-                    </div>
-
-                    <template x-for="dim in dimensions" :key="dim.key">
-                        <div>
-                            <div class="flex justify-between mb-1">
-                                <label class="text-sm font-medium text-gray-700" x-text="dim.label"></label>
-                                <span class="text-sm font-bold text-indigo-600" x-text="scores[dim.key]"></span>
-                            </div>
-                            <input type="range" min="0" max="10" step="1" x-model.number="scores[dim.key]" @input="updateChart()" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                
+                <div class="p-6 space-y-6">
+                    
+                    <!-- 两列布局：昵称 + 课程名 -->
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <!-- 昵称 -->
+                        <div class="sm:col-span-1">
+                            <label class="block text-sm font-bold text-gray-700 mb-1">你的昵称</label>
+                            <input type="text" x-model="nickname" placeholder="可留空" 
+                                   class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none transition text-sm">
                         </div>
-                    </template>
-
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">一句话短评</label>
-                        <textarea x-model="comment" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none transition"></textarea>
+                        <!-- 课程名 -->
+                        <div class="sm:col-span-2">
+                            <label class="block text-sm font-bold text-gray-700 mb-1">课程名称 <span class="text-red-500 text-xs font-normal">(请写全称)</span></label>
+                            <input type="text" x-model="courseName" placeholder="例如：软件工程基础" 
+                                   class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none transition">
+                        </div>
                     </div>
 
+                    <!-- 3个滑块 -->
+                    <div class="space-y-5">
+                        <template x-for="dim in dimensions" :key="dim.key">
+                            <div>
+                                <div class="flex justify-between items-center mb-1">
+                                    <label class="font-bold text-gray-700" x-text="dim.label">维度</label>
+                                    <span class="bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded text-sm font-bold" x-text="scores[dim.key] + ' 分'">0 分</span>
+                                </div>
+                                <input type="range" min="0" max="10" step="1" x-model.number="scores[dim.key]" class="w-full">
+                            </div>
+                        </template>
+                    </div>
+
+                    <!-- 建议/评价 -->
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">给学弟学妹们的建议</label>
+                        <p class="text-xs text-gray-400 mb-2">学习方法 / 考评方式 / 注意事项 / 避坑指南</p>
+                        <textarea x-model="comment" rows="4" placeholder="这门课平时分怎么算？考试难不难？老师点名吗？..."
+                                  class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:border-indigo-500 focus:outline-none transition"></textarea>
+                    </div>
+
+                    <!-- 提交按钮 -->
                     <button @click="submitData" 
                             :disabled="isSubmitting"
-                            class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition duration-200 flex justify-center items-center disabled:opacity-50">
-                        <span x-show="!isSubmitting">🚀 提交并生成评价</span>
-                        <span x-show="isSubmitting">提交中...</span>
+                            class="w-full py-3 bg-green-500 hover:bg-green-600 text-white font-bold text-lg rounded-xl shadow transition-colors flex justify-center items-center">
+                        <span x-text="isSubmitting ? '正在提交...' : '✅ 提交评价'">✅ 提交评价</span>
                     </button>
-                    <p class="text-xs text-center text-gray-400">提交后数据将同步至下方评价墙</p>
                 </div>
             </div>
 
-            <!-- 右侧：实时预览 -->
+            <!-- 🔵 右侧：结果展示区 -->
             <div class="space-y-6">
-                <!-- 评级卡片 -->
-                <div class="rounded-2xl shadow-xl overflow-hidden transform transition-all duration-300" :class="`tier-card-${currentTier.name}`">
-                    <div class="p-6 text-center relative">
-                        <div class="absolute top-0 left-0 w-full h-full opacity-10 text-9xl font-black pointer-events-none select-none flex justify-center items-center">
-                            <span x-text="currentTier.name"></span>
+                
+                <!-- 1. 评级大卡片 -->
+                <div class="rounded-2xl shadow-lg p-6 text-center transition-all duration-300 relative overflow-hidden min-h-[180px]"
+                     :class="`tier-bg-${currentTier.name}`">
+                    <div class="relative z-10">
+                        <div class="text-sm font-bold opacity-80 uppercase tracking-widest mb-1">预览评级</div>
+                        <div class="text-6xl font-black mb-2 drop-shadow-md" x-text="currentTier.name">--</div>
+                        <div class="inline-block bg-white/30 backdrop-blur-sm px-4 py-1 rounded-full text-sm font-medium border border-white/20">
+                            <span x-text="currentTier.desc">请在左侧评分</span>
                         </div>
-                        <h3 class="text-lg font-semibold uppercase tracking-wider opacity-80">您的评级</h3>
-                        <div class="text-5xl font-extrabold my-4 drop-shadow-md" x-text="currentTier.name"></div>
-                        <p class="text-md font-medium px-4 opacity-90" x-text="currentTier.desc"></p>
                     </div>
                 </div>
 
-                <!-- 雷达图 -->
-                <div class="bg-white rounded-2xl shadow-xl p-4">
-                    <div class="relative h-64 w-full">
-                        <canvas id="radarChart"></canvas>
+                <!-- 2. 能力条形图 -->
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
+                    <h3 class="text-gray-500 text-xs font-bold uppercase mb-4 text-center">预览</h3>
+                    
+                    <div class="space-y-4">
+                        <!-- 难度条 -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="font-bold text-gray-600">🧠 难度</span>
+                                <span class="text-gray-400" x-text="scores.difficulty + '/10'">0/10</span>
+                            </div>
+                            <div class="w-full bg-gray-100 rounded-full h-3">
+                                <div class="bg-red-400 h-3 rounded-full transition-all duration-500" 
+                                     :style="`width: ${scores.difficulty * 10}%`"></div>
+                            </div>
+                        </div>
+
+                        <!-- 体验条 -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="font-bold text-gray-600">🎮 体验</span>
+                                <span class="text-gray-400" x-text="scores.experience + '/10'">0/10</span>
+                            </div>
+                            <div class="w-full bg-gray-100 rounded-full h-3">
+                                <div class="bg-blue-400 h-3 rounded-full transition-all duration-500" 
+                                     :style="`width: ${scores.experience * 10}%`"></div>
+                            </div>
+                        </div>
+
+                        <!-- 收获条 -->
+                        <div>
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="font-bold text-gray-600">💰 收获</span>
+                                <span class="text-gray-400" x-text="scores.gain + '/10'">0/10</span>
+                            </div>
+                            <div class="w-full bg-gray-100 rounded-full h-3">
+                                <div class="bg-yellow-400 h-3 rounded-full transition-all duration-500" 
+                                     :style="`width: ${scores.gain * 10}%`"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 评价墙展示区 -->
-        <div class="border-t border-gray-300 pt-10">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
-                📢 最新课程评价墙 
-                <span class="ml-3 text-sm font-normal text-gray-500 bg-gray-200 px-3 py-1 rounded-full" x-text="`${reviewList.length} 条记录`"></span>
-            </h2>
+        <!-- 评价墙 -->
+        <div class="mt-12 pt-8 border-t-2 border-dashed border-gray-300">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">📢 评价墙</h2>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 <template x-for="review in reviewList" :key="review.id">
-                    <div class="bg-white p-5 rounded-xl shadow border-l-4 hover:shadow-md transition"
-                         :class="{
-                             'border-yellow-400': review.tier === '夯',
-                             'border-blue-400': review.tier === '顶级',
-                             'border-cyan-400': review.tier === '人上人',
-                             'border-gray-300': review.tier === 'NPC',
-                             'border-red-400': review.tier === '拉'
-                         }">
-                        <div class="flex justify-between items-start mb-2">
-                            <h3 class="font-bold text-gray-800 truncate w-2/3" x-text="review.courseName"></h3>
-                            <span class="px-2 py-0.5 rounded text-xs font-bold text-white"
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col hover:shadow-md transition">
+                        <!-- 头部：课程名 + 评级 -->
+                        <div class="flex justify-between items-start mb-3">
+                            <h3 class="font-bold text-gray-900 truncate text-lg" x-text="review.courseName"></h3>
+                            <span class="px-2 py-1 rounded text-xs font-bold text-white whitespace-nowrap ml-2"
                                   :class="{
                                      'bg-yellow-500': review.tier === '夯',
-                                     'bg-blue-500': review.tier === '顶级',
+                                     'bg-purple-500': review.tier === '顶级',
                                      'bg-cyan-500': review.tier === '人上人',
                                      'bg-gray-400': review.tier === 'NPC',
                                      'bg-red-500': review.tier === '拉'
-                                  }" x-text="review.tier"></span>
+                                  }" x-text="review.tier">--</span>
                         </div>
-                        <div class="flex space-x-2 text-xs text-gray-500 mb-3">
-                            <span>难:<span x-text="review.scores.difficulty"></span></span>
-                            <span>体:<span x-text="review.scores.experience"></span></span>
-                            <span>收:<span x-text="review.scores.gain"></span></span>
+                        
+                        <!-- 建议内容 -->
+                        <div class="flex-grow">
+                            <p class="text-xs text-gray-400 font-bold mb-1">建议/评价：</p>
+                            <p class="text-gray-700 text-sm italic mb-4 whitespace-pre-wrap break-words" x-text="review.comment || '（同学很懒，没写建议）'"></p>
                         </div>
-                        <p class="text-sm text-gray-600 italic break-words" x-text="`“${review.comment}”`"></p>
+
+                        <!-- 底部信息：昵称 + 分数 -->
+                        <div class="flex justify-between items-end border-t border-gray-100 pt-3 mt-auto">
+                            <div class="flex items-center text-xs text-gray-500">
+                                <span class="mr-1">👤</span>
+                                <span class="font-bold text-indigo-600" x-text="review.nickname || '神秘同学'"></span>
+                            </div>
+                            <div class="flex space-x-2 text-xs text-gray-400 font-mono">
+                                <span>难:<span x-text="review.scores.difficulty"></span></span>
+                                <span>体:<span x-text="review.scores.experience"></span></span>
+                                <span>收:<span x-text="review.scores.gain"></span></span>
+                            </div>
+                        </div>
                     </div>
                 </template>
                 
-                <div x-show="reviewList.length === 0" class="col-span-full text-center py-10 text-gray-400">
-                    暂无评价数据，快来抢占沙发！(需配置 Firebase)
+                <div x-show="reviewList.length === 0" class="col-span-full text-center py-8 bg-white rounded-lg border border-dashed border-gray-300">
+                    <p class="text-gray-400">暂无数据，快来抢沙发！</p>
                 </div>
             </div>
         </div>
-
     </div>
-
-    <script>
-        function courseEvaluator() {
-            return {
-                courseName: '高等数学',
-                comment: '这门课让人头秃...',
-                isSubmitting: false,
-                reviewList: [],
-                dimensions: [
-                    { key: 'difficulty', label: '难度 (Difficulty)' },
-                    { key: 'experience', label: '体验 (Experience)' },
-                    { key: 'gain', label: '收获 (Gain)' }
-                ],
-                scores: { difficulty: 8, experience: 5, gain: 6 },
-                chartInstance: null,
-
-                get totalScore() { return this.scores.difficulty + this.scores.experience + this.scores.gain; },
-                get currentTier() {
-                    const total = this.totalScore;
-                    if (total >= 27) return { name: '夯', desc: '神课认证！六边形战士！' };
-                    else if (total >= 22) return { name: '顶级', desc: '非常优秀，强烈推荐。' };
-                    else if (total >= 18) return { name: '人上人', desc: '优于平均水平，体验舒适。' };
-                    else if (total >= 10) return { name: 'NPC', desc: '普普通通，中规中矩。' };
-                    else return { name: '拉', desc: '快逃！避雷指南！' };
-                },
-
-                init() {
-                    this.initChart();
-                    this.$watch('scores', () => this.updateChart(), { deep: true });
-                    
-                    // 启动监听 Firebase 数据
-                    if (window.listenToReviews) {
-                        window.listenToReviews((data) => {
-                            this.reviewList = data;
-                        });
-                    }
-                },
-
-                initChart() {
-                    const ctx = document.getElementById('radarChart').getContext('2d');
-                    this.chartInstance = new Chart(ctx, {
-                        type: 'radar',
-                        data: {
-                            labels: ['难度', '体验', '收获'],
-                            datasets: [{
-                                label: '能力值',
-                                data: [this.scores.difficulty, this.scores.experience, this.scores.gain],
-                                backgroundColor: 'rgba(79, 70, 229, 0.2)',
-                                borderColor: 'rgba(79, 70, 229, 1)',
-                                borderWidth: 2
-                            }]
-                        },
-                        options: { scales: { r: { suggestedMin: 0, suggestedMax: 10 } } }
-                    });
-                },
-
-                updateChart() {
-                    if (this.chartInstance) {
-                        this.chartInstance.data.datasets[0].data = Object.values(this.scores);
-                        this.chartInstance.update();
-                    }
-                },
-
-                async submitData() {
-                    if (this.courseName.trim() === '') { alert('请输入课程名称'); return; }
-                    this.isSubmitting = true;
-                    
-                    const dataPayload = {
-                        courseName: this.courseName,
-                        scores: { ...this.scores },
-                        totalScore: this.totalScore,
-                        tier: this.currentTier.name,
-                        comment: this.comment
-                    };
-
-                    // 调用挂载在 window 上的 Firebase 函数
-                    if (window.submitReviewToDB) {
-                        const success = await window.submitReviewToDB(dataPayload);
-                        if (success) {
-                            alert('提交成功！你的评价已上墙。');
-                            this.comment = ''; // 清空评论
-                        }
-                    } else {
-                        alert("数据库未连接，请检查代码中的 firebaseConfig。");
-                    }
-                    this.isSubmitting = false;
-                }
-            }
-        }
-    </script>
 </body>
 </html>
